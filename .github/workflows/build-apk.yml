@@ -2,7 +2,8 @@ name: Build Android APK
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -16,10 +17,48 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Extract Android project ZIP
+      - name: Find and extract Android project ZIP
+        shell: bash
         run: |
-          mkdir project
-          unzip -q Premium3DTimer_UPLOAD_THIS.zip -d project
+          set -e
+
+          echo "Files in repository:"
+          find . -maxdepth 3 -type f -print
+
+          ZIP_FILE=$(find . -type f -iname "*.zip" -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file was found in the repository."
+            exit 1
+          fi
+
+          echo "Found ZIP: $ZIP_FILE"
+
+          mkdir -p project
+          unzip -q "$ZIP_FILE" -d project
+
+          echo "Extracted files:"
+          find project -maxdepth 4 -type f -print
+
+      - name: Find Android project
+        shell: bash
+        run: |
+          set -e
+
+          SETTINGS=$(find project -type f \( \
+            -name "settings.gradle" -o \
+            -name "settings.gradle.kts" \
+          \) -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle or settings.gradle.kts was not found."
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+
+          echo "Android project found at: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -33,12 +72,13 @@ jobs:
           gradle-version: "8.11"
 
       - name: Build Debug APK
-        working-directory: project
-        run: gradle :app:assembleDebug --no-daemon
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          gradle :app:assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: premium-3d-timer-debug
-          path: project/app/build/outputs/apk/debug/app-debug.apk
+          name: Premium-3D-Timer-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
