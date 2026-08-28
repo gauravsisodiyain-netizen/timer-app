@@ -32,8 +32,7 @@ jobs:
 
           if [ -z "$SETTINGS_FILE" ]; then
             echo "ERROR: settings.gradle or settings.gradle.kts not found!"
-            echo "Files in ZIP:"
-            find extracted -maxdepth 4 -type f | head -100
+            find extracted -maxdepth 5 -type f
             exit 1
           fi
 
@@ -42,27 +41,23 @@ jobs:
           echo "Android project found at:"
           echo "$PROJECT_DIR"
 
-          echo "Project files:"
           ls -la "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-        
-      - name: Make Gradle Wrapper Executable
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: chmod +x gradlew
+        with:
+          gradle-version: '8.10'
 
       - name: Build Debug APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          ./gradlew assembleDebug --stacktrace --info
+          gradle assembleDebug --stacktrace
 
       - name: Find APK
         run: |
           echo "Searching for APK..."
-
           find "${{ env.PROJECT_DIR }}" \
             -type f \
             -name "*.apk" \
