@@ -5,7 +5,6 @@ on:
     branches:
       - main
       - master
-
   workflow_dispatch:
 
 jobs:
@@ -13,23 +12,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # 1. Download repository
       - name: Checkout Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-
-      # 2. Install Java 17
+      # IMPORTANT:
+      # Do NOT use cache: gradle here because the Gradle project
+      # is inside the ZIP and does not exist yet.
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-
-      # 3. Extract Android project
       - name: Extract Android Project
+        shell: bash
         run: |
           set -e
 
@@ -46,9 +42,9 @@ jobs:
           \) | head -n 1)
 
           if [ -z "$SETTINGS_FILE" ]; then
-            echo "ERROR: Android project not found!"
+            echo "ERROR: Android project not found."
             echo ""
-            echo "Files found in ZIP:"
+            echo "Files inside ZIP:"
             find extracted -maxdepth 5 -type f | head -200
             exit 1
           fi
@@ -65,76 +61,77 @@ jobs:
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-
-      # 4. Setup Gradle
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v4
 
-
-      # 5. Fix Java/Kotlin JVM target
       - name: Configure JVM 17
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          set -e
-
-          echo "Configuring Java and Kotlin to use JVM 17..."
-
-          cat > jvm17.gradle <<'EOF'
+          cat > jvm-fix.gradle <<'EOF'
           import org.gradle.api.tasks.compile.JavaCompile
 
           allprojects {
               tasks.withType(JavaCompile).configureEach {
-                  options.release = 17
+                  options.release.set(17)
               }
+          }
 
-              tasks.matching {
-                  it.class.name == "org.jetbrains.kotlin.gradle.tasks.KotlinCompile"
-              }.configureEach {
-                  kotlinOptions.jvmTarget = "17"
+          gradle.projectsEvaluated {
+              allprojects {
+                  tasks.matching {
+                      it.name.contains("Kotlin", ignoreCase: true) &&
+                      it.name.contains("Compile", ignoreCase: true)
+                  }.configureEach {
+                      try {
+                          kotlinOptions.jvmTarget = "17"
+                      } catch (Exception ignored) {
+                      }
+                  }
               }
           }
           EOF
 
-          echo ""
-          echo "JVM 17 configuration created."
-
-
-      # 6. Make Gradle wrapper executable
       - name: Make Gradle Wrapper Executable
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          chmod +x gradlew
+          if [ ! -f "./gradlew" ]; then
+            echo "ERROR: gradlew was not found."
+            echo ""
+            echo "Project contents:"
+            find . -maxdepth 3 -type f | sort | head -200
+            exit 1
+          fi
 
+          chmod +x ./gradlew
 
-      # 7. Check Gradle
       - name: Check Gradle
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
           ./gradlew --version
 
-
-      # 8. Build Debug APK
       - name: Build Debug APK
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          ./gradlew \
-            --init-script jvm17.gradle \
-            assembleDebug \
-            --stacktrace
+          ./gradlew assembleDebug \
+            --stacktrace \
+            --info \
+            -I jvm-fix.gradle
 
-
-      # 9. Find APK
       - name: Find APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
           echo "Searching for APK..."
 
-          find "${{ env.PROJECT_DIR }}" \
+          find . \
             -type f \
             -name "*.apk" \
             -print
 
-
-      # 10. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
